@@ -6,11 +6,17 @@ kaboom({
     clearColor: [ 0, 0, 0, 1],
 })
 
+//constants
+const ENEMY_SPEED = 20
 const MOVE_SPEED = 120
 const JUMP_FORCE = 360
 const BIG_JUMP_FORCE = 550
+const FALL_DEATH = 400
+let IS_JUMPING = true
 let CURRENT_JUMP_FORCE = JUMP_FORCE
 
+
+//load sprites
 loadRoot('https://i.imgur.com/')
 loadSprite('coin', 'wbKxhcd.png')
 loadSprite('evil-shroom', 'KPO3fR9.png')
@@ -25,53 +31,81 @@ loadSprite('pipe-top-right', 'hj2GK4n.png')
 loadSprite('pipe-bottom-left', 'c1cYSbt.png')
 loadSprite('pipe-bottom-right', 'nqQ79eI.png')
 
-scene("game", () => {
+loadSprite('blue-block', 'fVscIbn.png')
+loadSprite('blue-brick', '3e5YRQd.png')
+loadSprite('blue-steel', 'gqVoI2b.png')
+loadSprite('blue-evil-shroom', 'SvV4ueD.png')
+loadSprite('blue-surprise', 'RMqCc1G.png')
+
+//Game logic
+scene("game", ({ level, score }) => {
     layers(["bg", "obj", "ui"], "obj")
 
-    const map = [
-        '                                      ',
-        '                                      ',
-        '                                      ',
-        '                                      ',
-        '                                      ',
-        '       %    =*=%=                     ',
-        '                             -+       ',
-        '                      ^  ^   ()       ',
-        '================================== ==='
+    const maps = [
+        [
+            '                                      ',
+            '                                      ',
+            '                                      ',
+            '                                      ',
+            '                                      ',
+            '       %    =*=%=                     ',
+            '                             -+       ',
+            '                      ^  ^   ()       ',
+            '================================== ==='
+        ],
+        [
+            '                                      ',
+            '         £££££££££££££££              ',
+            '                                      ',
+            '                                      ',
+            '                                      ',
+            '            @@@                       ',
+            '  xxx                      -+         ',
+            '         £  z          z   ()      zz ',
+            '!!!!! !!!!!!!!!!  !!!!!!!!!!!!!!! !!!!'
+        ]
     ]
 
     const levelCfg = {
         width: 20,
         height: 20,
         '=': [sprite('block'), solid()],
-        '$': [sprite('coin')],
+        '$': [sprite('coin'), 'coin'],
         '%': [sprite('surprise'), solid(), 'coin-surprise'],
         '*': [sprite('surprise'), solid(), 'mushroom-surprise'],
         '}': [sprite('unboxed'), solid()],
         '(': [sprite('pipe-bottom-left'), solid(), scale(0.5)],
         ')': [sprite('pipe-bottom-right'), solid(), scale(0.5)],
-        '-': [sprite('pipe-top-left'), solid(), scale(0.5)],
-        '+': [sprite('pipe-top-right'), solid(), scale(0.5)],
-        '^': [sprite('evil-shroom'), solid()],
+        '-': [sprite('pipe-top-left'), solid(), scale(0.5), 'pipe'],
+        '+': [sprite('pipe-top-right'), solid(), scale(0.5), 'pipe'],
+        '^': [sprite('evil-shroom'), solid(), 'dangerous'],
         '#': [sprite('mushroom'), solid(), 'mushroom', body()],
+
+        '!': [sprite('blue-block'), solid(), scale(0.5)],
+        '£': [sprite('blue-brick'), solid(), scale(0.5)],
+        'z': [sprite('blue-evil-shroom'), solid(), scale(0.5), 'dangerous'],
+        '@': [sprite('blue-surprise'), solid(), scale(0.5), 'coin-surprise'],
+        'x': [sprite('blue-steel'), solid(), scale(0.5)],
     }
 
-    const gameLevel = addLevel(map, levelCfg)
+    const gameLevel = addLevel(maps[level], levelCfg)
 
     const scoreLabel = add([
-        text("score"),
-        pos(30, 30),
+        text(score),
+        pos(30, 6),
         layer('ui'),
         {
-            value: "score",
+            value: score,
         }
     ])
 
+    //Display level
     add([
-        text('level ' + 'test'),
-        pos(3, 6),
+        text('level ' + parseInt(level + 1)),
+        pos(40, 6),
     ])
 
+    //Mushroom effect
     function big() {
         let timer = 0
         let isBig = false
@@ -89,8 +123,8 @@ scene("game", () => {
                 return isBig
             },
             smallify() {
-                CURRENT_JUMP_FORCE = JUMP_FORCE
                 this.scale = vec2(1)
+                CURRENT_JUMP_FORCE = JUMP_FORCE
                 timer = 0
                 isBig = false
             },
@@ -114,6 +148,10 @@ scene("game", () => {
         m.move(30, 0)
     })
 
+    action('dangerous', (d) => {
+        d.move(-ENEMY_SPEED, 0)
+    })
+
     player.on("headbump", (obj) => {
         if (obj.is('coin-surprise')) {
             gameLevel.spawn('$', obj.gridPos.sub(0, 1))
@@ -127,16 +165,50 @@ scene("game", () => {
         }
     })
 
+    //Player collisions
     player.collides('mushroom', (m) => {
         destroy(m)
         player.biggify(6)
     })
+
     player.collides('coin', (c) => {
         destroy(c)
         scoreLabel.value++
         scoreLabel.text = scoreLabel.value
     })
 
+    player.collides('dangerous', (d) => {
+        if(IS_JUMPING){
+            destroy(d)
+        } else {
+            go('lose', {score: scoreLabel.value})
+        }
+    })
+
+    player.collides('pipe', () => {
+        keyPress('down', () => {
+            go("game", {
+                score: scoreLabel.value,
+                level: (level +1) % maps.length
+            })
+        })
+    })
+
+    player.action(()  => {
+        if(player.grounded()){
+            IS_JUMPING = false
+        }
+    })
+
+    //Lose game
+    player.action(() => {
+        camPos(player.pos)
+        if(player.pos.y >= FALL_DEATH){
+            go('lose', { score: scoreLabel.value })
+        }
+    })
+
+    //Movement
     keyDown('left', () => {
         player.move(-MOVE_SPEED, 0)
     })
@@ -145,9 +217,15 @@ scene("game", () => {
     })
     keyPress('space', () => {
         if(player.grounded()){
+            IS_JUMPING = true
             player.jump(CURRENT_JUMP_FORCE)
         }
     })
 })
 
-start("game")
+//Display on death
+scene('lose', ({ score }) => {
+    add([text(score, 32), origin('center'), pos(width()/2, height()/2)])
+})
+
+start("game", { level: 0, score: 0 })
